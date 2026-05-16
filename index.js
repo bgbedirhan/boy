@@ -47,6 +47,12 @@ async function registerCommands() {
       .setName("setup-report")
       .setDescription("Sets up the report and bug report systems.")
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+      .toJSON(),
+
+    new SlashCommandBuilder()
+      .setName("send-welcome")
+      .setDescription("Sends the welcome message.")
+      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
       .toJSON()
   ];
 
@@ -57,7 +63,7 @@ async function registerCommands() {
     { body: commands }
   );
 
-  console.log("Slash command registered successfully.");
+  console.log("Slash commands registered successfully.");
 }
 
 client.once("ready", async () => {
@@ -66,7 +72,7 @@ client.once("ready", async () => {
   try {
     await registerCommands();
   } catch (err) {
-    console.error("Failed to register slash command:", err);
+    console.error("Failed to register slash commands:", err);
   }
 });
 
@@ -246,17 +252,42 @@ async function createPrivateTicket({
 
 client.on("interactionCreate", async (interaction) => {
   try {
+
     if (interaction.isChatInputCommand()) {
+
       if (interaction.commandName === "setup-report") {
+
         const guild = interaction.guild;
 
-        const reportChannel = await getOrCreateTextChannel(guild, REPORT_PANEL_CHANNEL_NAME);
-        await getOrCreateTextChannel(guild, REPORT_LOG_CHANNEL_NAME);
-        await getOrCreateCategory(guild, REPORT_CATEGORY_NAME);
+        const reportChannel = await getOrCreateTextChannel(
+          guild,
+          REPORT_PANEL_CHANNEL_NAME
+        );
 
-        const bugChannel = await getOrCreateTextChannel(guild, BUG_PANEL_CHANNEL_NAME);
-        await getOrCreateTextChannel(guild, BUG_LOG_CHANNEL_NAME);
-        await getOrCreateCategory(guild, BUG_CATEGORY_NAME);
+        await getOrCreateTextChannel(
+          guild,
+          REPORT_LOG_CHANNEL_NAME
+        );
+
+        await getOrCreateCategory(
+          guild,
+          REPORT_CATEGORY_NAME
+        );
+
+        const bugChannel = await getOrCreateTextChannel(
+          guild,
+          BUG_PANEL_CHANNEL_NAME
+        );
+
+        await getOrCreateTextChannel(
+          guild,
+          BUG_LOG_CHANNEL_NAME
+        );
+
+        await getOrCreateCategory(
+          guild,
+          BUG_CATEGORY_NAME
+        );
 
         await getOrCreateModeratorRole(guild);
 
@@ -281,14 +312,48 @@ client.on("interactionCreate", async (interaction) => {
         );
 
         await interaction.reply({
-          content: "Report and bug report systems have been set up successfully.",
+          content: "Report systems have been created successfully.",
+          ephemeral: true
+        });
+      }
+
+      if (interaction.commandName === "send-welcome") {
+
+        const welcomeChannel = interaction.guild.channels.cache.find(
+          ch => ch.name === "welcome"
+        );
+
+        if (!welcomeChannel) {
+          return interaction.reply({
+            content: "Welcome channel not found.",
+            ephemeral: true
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setTitle("Welcome to the Server")
+          .setDescription(
+            "Welcome to our community!\n\n" +
+            "Please read the rules and enjoy your stay.\n\n" +
+            "Use the report systems if you need assistance."
+          )
+          .setColor(0x00ff99);
+
+        await welcomeChannel.send({
+          embeds: [embed]
+        });
+
+        await interaction.reply({
+          content: "Welcome message sent successfully.",
           ephemeral: true
         });
       }
     }
 
     if (interaction.isButton()) {
+
       if (interaction.customId === "create_player_report") {
+
         await createPrivateTicket({
           interaction,
           categoryName: REPORT_CATEGORY_NAME,
@@ -305,9 +370,11 @@ client.on("interactionCreate", async (interaction) => {
             `**Description of the incident:**\n` +
             `**Evidence / screenshots:**`
         });
+
       }
 
       if (interaction.customId === "create_bug_report") {
+
         await createPrivateTicket({
           interaction,
           categoryName: BUG_CATEGORY_NAME,
@@ -325,11 +392,16 @@ client.on("interactionCreate", async (interaction) => {
             `**Actual result:**\n` +
             `**Screenshots / videos:**`
         });
+
       }
 
       if (interaction.customId === "close_ticket") {
+
         const member = interaction.member;
-        const hasPermission = member.permissions.has(PermissionFlagsBits.ManageMessages);
+
+        const hasPermission = member.permissions.has(
+          PermissionFlagsBits.ManageMessages
+        );
 
         if (!hasPermission) {
           return interaction.reply({
@@ -338,14 +410,18 @@ client.on("interactionCreate", async (interaction) => {
           });
         }
 
-        await interaction.reply("This channel will be closed in 5 seconds.");
+        await interaction.reply(
+          "This channel will be deleted in 5 seconds."
+        );
 
         setTimeout(async () => {
           await interaction.channel.delete().catch(() => {});
         }, 5000);
       }
     }
+
   } catch (err) {
+
     console.error("Interaction error:", err);
 
     if (!interaction.replied && !interaction.deferred) {
