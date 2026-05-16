@@ -1,7 +1,6 @@
 {
   "name": "discord-report-bot",
   "version": "1.0.0",
-  "description": "Discord player report ticket bot",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
