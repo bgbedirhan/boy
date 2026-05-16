@@ -18,30 +18,20 @@ const TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 
-console.log("TOKEN EXISTS:", TOKEN ? "YES" : "NO");
-console.log("TOKEN LENGTH:", TOKEN ? TOKEN.length : "MISSING");
-console.log("CLIENT_ID EXISTS:", CLIENT_ID ? "YES" : "NO");
-console.log("GUILD_ID EXISTS:", GUILD_ID ? "YES" : "NO");
-
-if (!TOKEN) {
-  console.error("BOT_TOKEN is missing. Add BOT_TOKEN in Railway Variables.");
-  process.exit(1);
-}
-
-if (!CLIENT_ID) {
-  console.error("CLIENT_ID is missing. Add CLIENT_ID in Railway Variables.");
-  process.exit(1);
-}
-
-if (!GUILD_ID) {
-  console.error("GUILD_ID is missing. Add GUILD_ID in Railway Variables.");
-  process.exit(1);
-}
-
 const REPORT_CATEGORY_NAME = "Reports";
 const REPORT_PANEL_CHANNEL_NAME = "report-a-player";
 const REPORT_LOG_CHANNEL_NAME = "report-log";
+
+const BUG_CATEGORY_NAME = "Bug Reports";
+const BUG_PANEL_CHANNEL_NAME = "bug-reports";
+const BUG_LOG_CHANNEL_NAME = "bug-log";
+
 const MOD_ROLE_NAME = "Moderator";
+
+if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
+  console.error("Missing BOT_TOKEN, CLIENT_ID or GUILD_ID in Railway Variables.");
+  process.exit(1);
+}
 
 const client = new Client({
   intents: [
@@ -55,7 +45,7 @@ async function registerCommands() {
   const commands = [
     new SlashCommandBuilder()
       .setName("setup-report")
-      .setDescription("Sets up the player report system.")
+      .setDescription("Sets up the report and bug report systems.")
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
       .toJSON()
   ];
@@ -80,198 +70,275 @@ client.once("ready", async () => {
   }
 });
 
+async function getOrCreateTextChannel(guild, name) {
+  let channel = guild.channels.cache.find(
+    ch => ch.name === name && ch.type === ChannelType.GuildText
+  );
+
+  if (!channel) {
+    channel = await guild.channels.create({
+      name,
+      type: ChannelType.GuildText
+    });
+  }
+
+  return channel;
+}
+
+async function getOrCreateCategory(guild, name) {
+  let category = guild.channels.cache.find(
+    ch => ch.name === name && ch.type === ChannelType.GuildCategory
+  );
+
+  if (!category) {
+    category = await guild.channels.create({
+      name,
+      type: ChannelType.GuildCategory
+    });
+  }
+
+  return category;
+}
+
+async function getOrCreateModeratorRole(guild) {
+  let role = guild.roles.cache.find(role => role.name === MOD_ROLE_NAME);
+
+  if (!role) {
+    role = await guild.roles.create({
+      name: MOD_ROLE_NAME,
+      permissions: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.ManageMessages
+      ]
+    });
+  }
+
+  return role;
+}
+
+function safeName(username) {
+  return username
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/gi, "")
+    .slice(0, 20);
+}
+
+async function createPanel(channel, title, description, buttonId, buttonLabel, color, style) {
+  const embed = new EmbedBuilder()
+    .setTitle(title)
+    .setDescription(description)
+    .setColor(color);
+
+  const button = new ButtonBuilder()
+    .setCustomId(buttonId)
+    .setLabel(buttonLabel)
+    .setStyle(style);
+
+  const row = new ActionRowBuilder().addComponents(button);
+
+  await channel.send({
+    embeds: [embed],
+    components: [row]
+  });
+}
+
+async function createPrivateTicket({
+  interaction,
+  categoryName,
+  logChannelName,
+  channelPrefix,
+  title,
+  description,
+  color,
+  closeLabel
+}) {
+  const guild = interaction.guild;
+  const user = interaction.user;
+
+  const category = guild.channels.cache.find(
+    ch => ch.name === categoryName && ch.type === ChannelType.GuildCategory
+  );
+
+  const modRole = guild.roles.cache.find(role => role.name === MOD_ROLE_NAME);
+
+  if (!modRole) {
+    return interaction.reply({
+      content: "Moderator role was not found. Please run /setup-report first.",
+      ephemeral: true
+    });
+  }
+
+  const username = safeName(user.username);
+  const channelName = `${channelPrefix}-${username}`;
+
+  const existingChannel = guild.channels.cache.find(ch => ch.name === channelName);
+
+  if (existingChannel) {
+    return interaction.reply({
+      content: `You already have an open channel: ${existingChannel}`,
+      ephemeral: true
+    });
+  }
+
+  const ticketChannel = await guild.channels.create({
+    name: channelName,
+    type: ChannelType.GuildText,
+    parent: category ? category.id : null,
+    permissionOverwrites: [
+      {
+        id: guild.id,
+        deny: [PermissionFlagsBits.ViewChannel]
+      },
+      {
+        id: user.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.AttachFiles
+        ]
+      },
+      {
+        id: modRole.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.ManageMessages
+        ]
+      }
+    ]
+  });
+
+  const closeButton = new ButtonBuilder()
+    .setCustomId("close_ticket")
+    .setLabel(closeLabel)
+    .setStyle(ButtonStyle.Secondary);
+
+  const row = new ActionRowBuilder().addComponents(closeButton);
+
+  const embed = new EmbedBuilder()
+    .setTitle(title)
+    .setDescription(description(user))
+    .setColor(color);
+
+  await ticketChannel.send({
+    content: `${user} ${modRole}`,
+    embeds: [embed],
+    components: [row]
+  });
+
+  const logChannel = guild.channels.cache.find(
+    ch => ch.name === logChannelName && ch.type === ChannelType.GuildText
+  );
+
+  if (logChannel) {
+    await logChannel.send(`New ticket created: ${ticketChannel} | Created by: ${user}`);
+  }
+
+  await interaction.reply({
+    content: `Your private channel has been created: ${ticketChannel}`,
+    ephemeral: true
+  });
+}
+
 client.on("interactionCreate", async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === "setup-report") {
         const guild = interaction.guild;
 
-        let reportChannel = guild.channels.cache.find(
-          ch => ch.name === REPORT_PANEL_CHANNEL_NAME && ch.type === ChannelType.GuildText
+        const reportChannel = await getOrCreateTextChannel(guild, REPORT_PANEL_CHANNEL_NAME);
+        await getOrCreateTextChannel(guild, REPORT_LOG_CHANNEL_NAME);
+        await getOrCreateCategory(guild, REPORT_CATEGORY_NAME);
+
+        const bugChannel = await getOrCreateTextChannel(guild, BUG_PANEL_CHANNEL_NAME);
+        await getOrCreateTextChannel(guild, BUG_LOG_CHANNEL_NAME);
+        await getOrCreateCategory(guild, BUG_CATEGORY_NAME);
+
+        await getOrCreateModeratorRole(guild);
+
+        await createPanel(
+          reportChannel,
+          "Player Report",
+          "Click the button below to report a player.",
+          "create_player_report",
+          "Report Player",
+          0xff0000,
+          ButtonStyle.Danger
         );
 
-        if (!reportChannel) {
-          reportChannel = await guild.channels.create({
-            name: REPORT_PANEL_CHANNEL_NAME,
-            type: ChannelType.GuildText
-          });
-        }
-
-        let logChannel = guild.channels.cache.find(
-          ch => ch.name === REPORT_LOG_CHANNEL_NAME && ch.type === ChannelType.GuildText
+        await createPanel(
+          bugChannel,
+          "Bug Report",
+          "Click the button below to report a bug.",
+          "create_bug_report",
+          "Report Bug",
+          0x00b0f4,
+          ButtonStyle.Primary
         );
-
-        if (!logChannel) {
-          logChannel = await guild.channels.create({
-            name: REPORT_LOG_CHANNEL_NAME,
-            type: ChannelType.GuildText
-          });
-        }
-
-        let category = guild.channels.cache.find(
-          ch => ch.name === REPORT_CATEGORY_NAME && ch.type === ChannelType.GuildCategory
-        );
-
-        if (!category) {
-          category = await guild.channels.create({
-            name: REPORT_CATEGORY_NAME,
-            type: ChannelType.GuildCategory
-          });
-        }
-
-        let modRole = guild.roles.cache.find(role => role.name === MOD_ROLE_NAME);
-
-        if (!modRole) {
-          modRole = await guild.roles.create({
-            name: MOD_ROLE_NAME,
-            permissions: [
-              PermissionFlagsBits.ViewChannel,
-              PermissionFlagsBits.SendMessages,
-              PermissionFlagsBits.ReadMessageHistory,
-              PermissionFlagsBits.ManageMessages
-            ]
-          });
-        }
-
-        const embed = new EmbedBuilder()
-          .setTitle("Player Report")
-          .setDescription("Click the button below to report a player.")
-          .setColor(0xff0000);
-
-        const button = new ButtonBuilder()
-          .setCustomId("create_report")
-          .setLabel("Report Player")
-          .setStyle(ButtonStyle.Danger);
-
-        const row = new ActionRowBuilder().addComponents(button);
-
-        await reportChannel.send({
-          embeds: [embed],
-          components: [row]
-        });
 
         await interaction.reply({
-          content: "The report system has been set up successfully.",
+          content: "Report and bug report systems have been set up successfully.",
           ephemeral: true
         });
       }
     }
 
     if (interaction.isButton()) {
-      if (interaction.customId === "create_report") {
-        const guild = interaction.guild;
-        const user = interaction.user;
-
-        const category = guild.channels.cache.find(
-          ch => ch.name === REPORT_CATEGORY_NAME && ch.type === ChannelType.GuildCategory
-        );
-
-        const modRole = guild.roles.cache.find(role => role.name === MOD_ROLE_NAME);
-
-        if (!modRole) {
-          return interaction.reply({
-            content: "Moderator role was not found. Please run /setup-report first.",
-            ephemeral: true
-          });
-        }
-
-        const safeUsername = user.username
-          .toLowerCase()
-          .replace(/[^a-z0-9-]/gi, "")
-          .slice(0, 20);
-
-        const existingChannel = guild.channels.cache.find(
-          ch => ch.name === `report-${safeUsername}`
-        );
-
-        if (existingChannel) {
-          return interaction.reply({
-            content: `You already have an open report channel: ${existingChannel}`,
-            ephemeral: true
-          });
-        }
-
-        const reportChannel = await guild.channels.create({
-          name: `report-${safeUsername}`,
-          type: ChannelType.GuildText,
-          parent: category ? category.id : null,
-          permissionOverwrites: [
-            {
-              id: guild.id,
-              deny: [PermissionFlagsBits.ViewChannel]
-            },
-            {
-              id: user.id,
-              allow: [
-                PermissionFlagsBits.ViewChannel,
-                PermissionFlagsBits.SendMessages,
-                PermissionFlagsBits.ReadMessageHistory,
-                PermissionFlagsBits.AttachFiles
-              ]
-            },
-            {
-              id: modRole.id,
-              allow: [
-                PermissionFlagsBits.ViewChannel,
-                PermissionFlagsBits.SendMessages,
-                PermissionFlagsBits.ReadMessageHistory,
-                PermissionFlagsBits.ManageMessages
-              ]
-            }
-          ]
-        });
-
-        const closeButton = new ButtonBuilder()
-          .setCustomId("close_report")
-          .setLabel("Close Report")
-          .setStyle(ButtonStyle.Secondary);
-
-        const row = new ActionRowBuilder().addComponents(closeButton);
-
-        const embed = new EmbedBuilder()
-          .setTitle("Report Created")
-          .setDescription(
+      if (interaction.customId === "create_player_report") {
+        await createPrivateTicket({
+          interaction,
+          categoryName: REPORT_CATEGORY_NAME,
+          logChannelName: REPORT_LOG_CHANNEL_NAME,
+          channelPrefix: "report",
+          title: "Player Report Created",
+          color: 0xff9900,
+          closeLabel: "Close Report",
+          description: (user) =>
             `Hello ${user}, please describe your report in this channel.\n\n` +
             `Please include the following information:\n\n` +
             `**Reported player name:**\n` +
             `**Date of incident:**\n` +
             `**Description of the incident:**\n` +
             `**Evidence / screenshots:**`
-          )
-          .setColor(0xff9900);
-
-        await reportChannel.send({
-          content: `${user} ${modRole}`,
-          embeds: [embed],
-          components: [row]
-        });
-
-        const logChannel = guild.channels.cache.find(
-          ch => ch.name === REPORT_LOG_CHANNEL_NAME && ch.type === ChannelType.GuildText
-        );
-
-        if (logChannel) {
-          await logChannel.send(`New report created: ${reportChannel} | Created by: ${user}`);
-        }
-
-        await interaction.reply({
-          content: `Your report channel has been created: ${reportChannel}`,
-          ephemeral: true
         });
       }
 
-      if (interaction.customId === "close_report") {
+      if (interaction.customId === "create_bug_report") {
+        await createPrivateTicket({
+          interaction,
+          categoryName: BUG_CATEGORY_NAME,
+          logChannelName: BUG_LOG_CHANNEL_NAME,
+          channelPrefix: "bug",
+          title: "Bug Report Created",
+          color: 0x00b0f4,
+          closeLabel: "Close Bug Report",
+          description: (user) =>
+            `Hello ${user}, please describe the bug in this channel.\n\n` +
+            `Please include the following information:\n\n` +
+            `**Bug description:**\n` +
+            `**How to reproduce:**\n` +
+            `**Expected result:**\n` +
+            `**Actual result:**\n` +
+            `**Screenshots / videos:**`
+        });
+      }
+
+      if (interaction.customId === "close_ticket") {
         const member = interaction.member;
         const hasPermission = member.permissions.has(PermissionFlagsBits.ManageMessages);
 
         if (!hasPermission) {
           return interaction.reply({
-            content: "Only moderators can close this report channel.",
+            content: "Only moderators can close this channel.",
             ephemeral: true
           });
         }
 
-        await interaction.reply("This report channel will be closed in 5 seconds.");
+        await interaction.reply("This channel will be closed in 5 seconds.");
 
         setTimeout(async () => {
           await interaction.channel.delete().catch(() => {});
