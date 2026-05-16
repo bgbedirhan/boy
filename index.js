@@ -18,23 +18,23 @@ const TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 
-console.log("TOKEN VAR MI:", TOKEN ? "EVET" : "HAYIR");
-console.log("TOKEN UZUNLUK:", TOKEN ? TOKEN.length : "YOK");
-console.log("CLIENT_ID VAR MI:", CLIENT_ID ? "EVET" : "HAYIR");
-console.log("GUILD_ID VAR MI:", GUILD_ID ? "EVET" : "HAYIR");
+console.log("TOKEN EXISTS:", TOKEN ? "YES" : "NO");
+console.log("TOKEN LENGTH:", TOKEN ? TOKEN.length : "MISSING");
+console.log("CLIENT_ID EXISTS:", CLIENT_ID ? "YES" : "NO");
+console.log("GUILD_ID EXISTS:", GUILD_ID ? "YES" : "NO");
 
 if (!TOKEN) {
-  console.error("BOT_TOKEN bulunamadı. Railway Variables içine BOT_TOKEN ekle.");
+  console.error("BOT_TOKEN is missing. Add BOT_TOKEN in Railway Variables.");
   process.exit(1);
 }
 
 if (!CLIENT_ID) {
-  console.error("CLIENT_ID bulunamadı. Railway Variables içine CLIENT_ID ekle.");
+  console.error("CLIENT_ID is missing. Add CLIENT_ID in Railway Variables.");
   process.exit(1);
 }
 
 if (!GUILD_ID) {
-  console.error("GUILD_ID bulunamadı. Railway Variables içine GUILD_ID ekle.");
+  console.error("GUILD_ID is missing. Add GUILD_ID in Railway Variables.");
   process.exit(1);
 }
 
@@ -55,7 +55,7 @@ async function registerCommands() {
   const commands = [
     new SlashCommandBuilder()
       .setName("setup-report")
-      .setDescription("Report player sistemini kurar.")
+      .setDescription("Sets up the player report system.")
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
       .toJSON()
   ];
@@ -67,16 +67,16 @@ async function registerCommands() {
     { body: commands }
   );
 
-  console.log("Slash komutu yüklendi.");
+  console.log("Slash command registered successfully.");
 }
 
 client.once("ready", async () => {
-  console.log(`${client.user.tag} aktif!`);
+  console.log(`${client.user.tag} is online!`);
 
   try {
     await registerCommands();
   } catch (err) {
-    console.error("Slash komutu yüklenirken hata:", err);
+    console.error("Failed to register slash command:", err);
   }
 });
 
@@ -135,7 +135,7 @@ client.on("interactionCreate", async (interaction) => {
 
         const embed = new EmbedBuilder()
           .setTitle("Player Report")
-          .setDescription("Bir oyuncuyu şikayet etmek için aşağıdaki butona bas.")
+          .setDescription("Click the button below to report a player.")
           .setColor(0xff0000);
 
         const button = new ButtonBuilder()
@@ -151,7 +151,7 @@ client.on("interactionCreate", async (interaction) => {
         });
 
         await interaction.reply({
-          content: "Report sistemi kuruldu.",
+          content: "The report system has been set up successfully.",
           ephemeral: true
         });
       }
@@ -170,14 +170,14 @@ client.on("interactionCreate", async (interaction) => {
 
         if (!modRole) {
           return interaction.reply({
-            content: "Moderator rolü bulunamadı. Önce /setup-report komutunu çalıştır.",
+            content: "Moderator role was not found. Please run /setup-report first.",
             ephemeral: true
           });
         }
 
         const safeUsername = user.username
           .toLowerCase()
-          .replace(/[^a-z0-9ğüşöçıİĞÜŞÖÇ-]/gi, "")
+          .replace(/[^a-z0-9-]/gi, "")
           .slice(0, 20);
 
         const existingChannel = guild.channels.cache.find(
@@ -186,7 +186,7 @@ client.on("interactionCreate", async (interaction) => {
 
         if (existingChannel) {
           return interaction.reply({
-            content: `Zaten açık bir report kanalın var: ${existingChannel}`,
+            content: `You already have an open report channel: ${existingChannel}`,
             ephemeral: true
           });
         }
@@ -223,19 +223,20 @@ client.on("interactionCreate", async (interaction) => {
 
         const closeButton = new ButtonBuilder()
           .setCustomId("close_report")
-          .setLabel("Report Kapat")
+          .setLabel("Close Report")
           .setStyle(ButtonStyle.Secondary);
 
         const row = new ActionRowBuilder().addComponents(closeButton);
 
         const embed = new EmbedBuilder()
-          .setTitle("Report Açıldı")
+          .setTitle("Report Created")
           .setDescription(
-            `Merhaba ${user}, şikayetini buraya yaz.\n\nLütfen şunları ekle:\n\n` +
-            `**Şikayet edilen oyuncu adı:**\n` +
-            `**Olay tarihi:**\n` +
-            `**Olay açıklaması:**\n` +
-            `**Kanıt / ekran görüntüsü:**`
+            `Hello ${user}, please describe your report in this channel.\n\n` +
+            `Please include the following information:\n\n` +
+            `**Reported player name:**\n` +
+            `**Date of incident:**\n` +
+            `**Description of the incident:**\n` +
+            `**Evidence / screenshots:**`
           )
           .setColor(0xff9900);
 
@@ -250,11 +251,11 @@ client.on("interactionCreate", async (interaction) => {
         );
 
         if (logChannel) {
-          await logChannel.send(`Yeni report açıldı: ${reportChannel} | Açan: ${user}`);
+          await logChannel.send(`New report created: ${reportChannel} | Created by: ${user}`);
         }
 
         await interaction.reply({
-          content: `Report kanalın açıldı: ${reportChannel}`,
+          content: `Your report channel has been created: ${reportChannel}`,
           ephemeral: true
         });
       }
@@ -265,12 +266,12 @@ client.on("interactionCreate", async (interaction) => {
 
         if (!hasPermission) {
           return interaction.reply({
-            content: "Bu report kanalını sadece moderatörler kapatabilir.",
+            content: "Only moderators can close this report channel.",
             ephemeral: true
           });
         }
 
-        await interaction.reply("Bu report kanalı 5 saniye içinde kapatılıyor.");
+        await interaction.reply("This report channel will be closed in 5 seconds.");
 
         setTimeout(async () => {
           await interaction.channel.delete().catch(() => {});
@@ -278,11 +279,11 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
   } catch (err) {
-    console.error("Interaction hatası:", err);
+    console.error("Interaction error:", err);
 
     if (!interaction.replied && !interaction.deferred) {
       await interaction.reply({
-        content: "Bir hata oluştu. Bot loglarını kontrol et.",
+        content: "An error occurred. Please check the bot logs.",
         ephemeral: true
       }).catch(() => {});
     }
